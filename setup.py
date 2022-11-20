@@ -16,7 +16,8 @@ setuptools.setup(
         'setuptools',
         'requests',
         'numpy',
-        'protobuf'
+        'protobuf',
+        'websocket-client'
     ],
     long_description=long_description,
     long_description_content_type='text/markdown'

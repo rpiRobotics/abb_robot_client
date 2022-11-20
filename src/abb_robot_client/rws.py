@@ -5,6 +5,8 @@ import requests
 import datetime
 import re
 import time
+import websocket
+import threading
 
 from typing import Callable, NamedTuple, Any, List, Union
 from enum import IntEnum
@@ -18,7 +20,7 @@ class RAPIDExecutionState(NamedTuple):
     ctrlexecstate: Any
     cycle: Any
 
-class RAPIDEventLogEntry(NamedTuple):
+class EventLogEntry(NamedTuple):
     seqnum: int
     msgtype: int
     code: int 
@@ -30,7 +32,10 @@ class RAPIDEventLogEntry(NamedTuple):
     causes: str
     actions: str
 
-class RAPIDTaskState(NamedTuple):
+class EventLogEntryEvent(NamedTuple):
+    seqnum: int
+
+class TaskState(NamedTuple):
     name: str
     type_: str
     taskstate: str
@@ -54,10 +59,43 @@ class IpcMessage(NamedTuple):
     userdef: str
     msgtype: str
     cmd: str
+    queue_name: str
 
 class Signal(NamedTuple):
     name: str
     lvalue: str
+
+class ControllerState(NamedTuple):
+    state: str
+
+class OperationalMode(NamedTuple):
+    mode: str
+
+class VariableValue(NamedTuple):
+    name: str
+    value: str
+    task: str = None
+
+class SubscriptionResourceType(IntEnum):
+    ControllerState = 1
+    OperationalMode = 2
+    ExecutionState = 3
+    PersVar = 4
+    IpcQueue = 5
+    Elog = 6
+    Signal = 7
+
+class SubscriptionResourcePriority(IntEnum):
+    Low = 0
+    Medium = 1
+    High = 2
+
+class SubscriptionResourceRequest(NamedTuple):
+    resource_type: SubscriptionResourceType
+    priority: SubscriptionResourcePriority
+    param: Any = None
+
+
 
 class RWS:
     def __init__(self, base_url='http://127.0.0.1:80', username='Default User', password='robotics'):
@@ -196,14 +234,39 @@ class RWS:
         payload={"mode": "value",'lvalue': value}
         res=self._do_post("rw/iosystem/signals/" + network + "/" + unit + "/" + signal + "?action=set", payload)
     
-    def get_rapid_variable(self, var: str) -> str:
-        res_json = self._do_get("rw/rapid/symbol/data/RAPID/T_ROB1/" + var)
+    def get_rapid_variables(self, task: str="T_ROB1") -> str:
+        payload={
+            "view": "block",
+            "vartyp": "any",
+            "blockurl": f"RAPID/{task}" if task is not None else "RAPID",
+            "symtyp": "per",
+            "recursive": "true",
+            "skipshared": "FALSE",
+            "onlyused": "FALSE",
+            "stack": "0",
+            "posl": "0",
+            "posc": "0"
+        }
+        res_json = self._do_post(f"rw/rapid/symbols?action=search-symbols", payload)
+        state = res_json["_embedded"]["_state"]
+        return state
+
+    def get_rapid_variable(self, var: str, task: str = "T_ROB1") -> str:
+        if task is not None:
+            var1 = f"{task}/{var}"
+        else:
+            var1 = var
+        res_json = self._do_get("rw/rapid/symbol/data/RAPID/" + var1)
         state = res_json["_embedded"]["_state"][0]["value"]
         return state
     
-    def set_rapid_variable(self, var: str, value: str):
+    def set_rapid_variable(self, var: str, value: str, task: str = "T_ROB1"):
         payload={'value': value}
-        res=self._do_post("rw/rapid/symbol/data/RAPID/T_ROB1/" + var + "?action=set", payload)
+        if task is not None:
+            var1 = f"{task}/var"
+        else:
+            var1 = var
+        res=self._do_post("rw/rapid/symbol/data/RAPID/" + var1 + "?action=set", payload)
         
     def read_file(self, filename: str) -> bytes:
         url="/".join([self.base_url, "fileservice", filename])
@@ -224,7 +287,7 @@ class RWS:
         res=self._session.delete(url, auth=self.auth)
         res.close()
 
-    def read_event_log(self, elog: int=0) -> List[RAPIDEventLogEntry]:
+    def read_event_log(self, elog: int=0) -> List[EventLogEntry]:
         o=[]
         res_json = self._do_get("rw/elog/" + str(elog) + "/?lang=en")
         state = res_json["_embedded"]["_state"]
@@ -245,10 +308,10 @@ class RWS:
                 for arg in s["argv"]:
                     args.append(arg["value"])
             
-            o.append(RAPIDEventLogEntry(seqnum,msg_type,code,tstamp,args,title,desc,conseqs,causes,actions))
+            o.append(EventLogEntry(seqnum,msg_type,code,tstamp,args,title,desc,conseqs,causes,actions))
         return o
 
-    def get_tasks(self) -> List[RAPIDTaskState]:
+    def get_tasks(self) -> List[TaskState]:
         o = {}
         res_json = self._do_get("rw/rapid/tasks")
         state = res_json["_embedded"]["_state"]
@@ -267,7 +330,7 @@ class RWS:
             except:
                 motiontask=False
 
-            o[name]=RAPIDTaskState(name,type_,taskstate,excstate,active,motiontask)
+            o[name]=TaskState(name,type_,taskstate,excstate,active,motiontask)
         
         return o
 
@@ -307,13 +370,13 @@ class RWS:
         rws_value="[[" + robax + "],[" + extax + "]]"
         return rws_value
     
-    def get_rapid_variable_jointtarget(self, var):
-        v = self.get_rapid_variable(var)
+    def get_rapid_variable_jointtarget(self, var, task: str = "T_ROB1"):
+        v = self.get_rapid_variable(var, task)
         return self._rws_value_to_jointtarget(v)
     
-    def set_rapid_variable_jointtarget(self,var,value):
+    def set_rapid_variable_jointtarget(self,var,value, task: str = "T_ROB1"):
         rws_value=self._jointtarget_to_rws_value(value)
-        self.set_rapid_variable(var, rws_value)
+        self.set_rapid_variable(var, rws_value, task)
             
     def _rws_value_to_jointtarget_array(self,val):
         m1=re.match('^\\[(.*)\\]$',val)
@@ -331,28 +394,28 @@ class RWS:
     def _jointtarget_array_to_rws_value(self, val):
         return "[" + ','.join([self._jointtarget_to_rws_value(v) for v in val]) + "]"
     
-    def get_rapid_variable_jointtarget_array(self, var):
-        v = self.get_rapid_variable(var)
+    def get_rapid_variable_jointtarget_array(self, var, task: str = "T_ROB1"):
+        v = self.get_rapid_variable(var, task)
         return self._rws_value_to_jointtarget_array(v)
     
-    def set_rapid_variable_jointtarget_array(self,var,value):
+    def set_rapid_variable_jointtarget_array(self,var,value, task: str = "T_ROB1"):
         rws_value=self._jointtarget_array_to_rws_value(value)
-        self.set_rapid_variable(var, rws_value)
+        self.set_rapid_variable(var, rws_value, task)
 
-    def get_rapid_variable_num(self, var):
-        return float(self.get_rapid_variable(var))
+    def get_rapid_variable_num(self, var, task: str = "T_ROB1"):
+        return float(self.get_rapid_variable(var,task))
     
-    def set_rapid_variable_num(self, var, val):
-        self.set_rapid_variable(var, str(val))
+    def set_rapid_variable_num(self, var, val, task: str = "T_ROB1"):
+        self.set_rapid_variable(var, str(val), task)
         
-    def get_rapid_variable_num_array(self, var):
-        val1=self.get_rapid_variable(var)
+    def get_rapid_variable_num_array(self, var, task: str = "T_ROB1"):
+        val1=self.get_rapid_variable(var,task)
         m=re.match("^\\[([^\\]]*)\\]$", val1)
         val2=m.groups()[0].strip()
         return np.fromstring(val2,sep=',')
     
-    def set_rapid_variable_num_array(self, var, val):
-        self.set_rapid_variable(var, "[" + ','.join([str(s) for s in val]) + "]")
+    def set_rapid_variable_num_array(self, var, val, task: str = "T_ROB1"):
+        self.set_rapid_variable(var, "[" + ','.join([str(s) for s in val]) + "]", task)
 
     def read_ipc_message(self, queue_name, timeout=0):
         
@@ -367,7 +430,7 @@ class RWS:
             assert state["_type"] == "dipc-read-li"
      
             o.append(IpcMessage(state["dipc-data"], state["dipc-userdef"],
-                state["dipc-msgtype"], state["dipc-cmd"]))
+                state["dipc-msgtype"], state["dipc-cmd"], state["queue-name"]))
             
             #o.append(RAPIDEventLogEntry(msg_type,code,tstamp,args,title,desc,conseqs,causes,actions))
         return o
@@ -452,3 +515,149 @@ class RWS:
         return state["status"] == "GRANTED"
 
 
+    def subscribe(self, resources: List[SubscriptionResourceRequest], handler: Callable):
+
+        payload = {}
+        payload_ind = 0
+        for r in resources:
+            payload_ind += 1
+            if r.resource_type == SubscriptionResourceType.ControllerState:
+                payload[f"{payload_ind}"] = "/rw/panel/ctrlstate"
+            elif r.resource_type == SubscriptionResourceType.OperationalMode:
+                payload[f"{payload_ind}"] = "/rw/panel/opmode"
+            elif r.resource_type == SubscriptionResourceType.ExecutionState:
+                payload[f"{payload_ind}"] = "/rw/rapid/execution;ctrlexecstate"
+            elif r.resource_type == SubscriptionResourceType.PersVar:
+                if isinstance(r.param, str):
+                    var1 = f"T_ROB1/{r.param}"
+                else:
+                    var_name = r.param["name"]
+                    task = r.param.get("task", "T_ROB1")
+                    if task is not None:
+                        var1 = f"{task}/{var_name}"
+                    else:
+                        var1 = var_name
+                payload[f"{payload_ind}"] = f"/rw/rapid/symbol/data/RAPID/{var1};value"
+            elif r.resource_type == SubscriptionResourceType.IpcQueue:
+                payload[f"{payload_ind}"] = f'/rw/dipc/{r.param}'
+            elif r.resource_type == SubscriptionResourceType.Elog:
+                payload[f"{payload_ind}"] = f'/rw/elog/0'
+            elif r.resource_type == SubscriptionResourceType.Signal:
+                if isinstance(r.param, str):
+                    signal = r.param
+                    network = "Local"
+                    unit = "DRV_1"
+                else:
+                    signal = r.param["signal"]
+                    network = r.param.get("network", "Local")
+                    unit = r.param.get("unit", "DRV_1")
+                payload[f"{payload_ind}"] = f'/rw/iosystem/signals/{network}/{unit}/{signal};state'
+            else:
+                assert False, "Invalid resource type"
+            payload[f"{payload_ind}-p"] = f"{r.priority.value}"
+
+        payload["resources"] = [f"{i+1}" for i in range(payload_ind)]
+
+                
+        url="/".join([self.base_url, "subscription"]) + "?json=1"
+        res1=self._session.post(url, data=payload, auth=self.auth)
+        try:
+            res=self._process_response(res1)
+        finally:
+            res1.close()
+
+        assert res1.status_code == 201, "Subscription creation failed"
+
+        m = re.search(r'<a href="(ws:\/\/.*\/poll\/\d+)" rel="self">', res1.content.decode("ascii"))
+        assert m
+        ws_url = m.group(1)
+        
+        cookie = f"ABBCX={self._session.cookies['ABBCX']}"
+        header={'Cookie': cookie, 'Authorization': self.auth.build_digest_header("GET", ws_url)}
+
+        return RWSSubscription(ws_url, header, handler)
+
+class SubscriptionException(Exception):
+    def __init__(self, message):
+        super().__init__(message)
+
+class SubscriptionClosed(NamedTuple):
+    code: int
+    msg: str
+
+class RWSSubscription:
+    def __init__(self, ws_url, header, handler):
+        self.handler = handler
+
+        self._signal_re = re.compile(r'<a\s+href="/rw/iosystem/signals/([^"]+);state"\s+rel="self"/?>.*<span\s+class="lvalue">([^<]+)<')
+        self._pers_re = re.compile(r'<a\s+href="/rw/rapid/symbol/data/RAPID/([^"]+);value"\s+rel="self"/?>.*<span\s+class="value">([^<]+)<')
+        self._elog_re = re.compile(r'<a\s+href="/rw/elog/0/([^"]+)"\s+rel="self"/?>.*<span\s+class="seqnum">([^<]+)<')
+        self._exec_re = re.compile(r'<a\s+href="/rw/rapid/execution;ctrlexecstate"\s+rel="self"/?>.*<span\s+class="ctrlexecstate">([^<]+)<')
+        self._opmode_re = re.compile(r'<a\s+href="/rw/panel/opmode"\s+rel="self"/?>.*<span\s+class="opmode">([^<]+)<')
+        self._ctrl_re = re.compile(r'<a\s+href="/rw/panel/ctrlstate"\s+rel="self"/?>.*<span\s+class="ctrlstate">([^<]+)<')
+        self._ipc_re = re.compile(r'<a\s+href="/rw/dipc/([^"]*)".*<span\s+class="dipc-data">([^<]+)<.*<span\s+class="dipc-userdef">([^<]+)<')
+
+        self.ws = websocket.WebSocketApp(
+            ws_url, 
+            header = header,
+            on_open = self._on_open,
+            on_message = self._on_message,
+            on_error = self._on_error,
+            on_close = self._on_close,
+            subprotocols=['robapi2_subscription']
+            )
+
+        self.thread = threading.Thread(target=self._run)
+        self.thread.daemon=True
+        self.thread.start()
+
+    def _run(self):
+        self.ws.run_forever(reconnect = 0.1)
+
+    def _on_message(self, ws, message):
+        if 'li class="ios-signalstate-ev"' in message:
+            m = self._signal_re.search(message)
+            if m is not None:
+                sig_path = m.group(1).split('/')
+                self.handler(Signal(sig_path[-1], m.group(2)))
+        elif 'li class="rap-data"' in message:
+            m = self._pers_re.search(message)
+            if m is not None:
+                pers_path = m.group(1).split('/')
+                if len(pers_path) == 1:            
+                    self.handler(VariableValue(pers_path[0], m.group(2)))
+                else:
+                    self.handler(VariableValue(pers_path[0], m.group(2), pers_path[-1]))
+        elif 'li class="elog-message-ev"' in message:
+            m = self._elog_re.search(message)
+            if m is not None:
+                self.handler(EventLogEntryEvent(m.group(2)))
+        elif 'li class="rap-ctrlexecstate-ev"' in message:
+            m = self._exec_re.search(message)
+            if m is not None:
+                self.handler(RAPIDExecutionState(m.group(1),''))
+        elif 'li class="pnl-opmode-ev"' in message:
+            m = self._opmode_re.search(message)
+            if m is not None:
+                self.handler(OperationalMode(m.group(1)))
+        elif 'li class="pnl-ctrlstate-ev"' in message:
+            m = self._ctrl_re.search(message)
+            if m is not None:
+                self.handler(ControllerState(m.group(1)))
+        elif 'li class="dipc-msg-ev"' in message:
+            m = self._ipc_re.search(message)
+            if m is not None:
+                self.handler(IpcMessage(queue_name=m.group(1), data=m.group(2), userdef=m.group(3), msgtype="", cmd=""))
+                
+
+    def _on_error(self, ws, error):
+        self.handler(SubscriptionException(error))
+
+    def _on_close(self, ws, close_status_code, close_msg):
+        self.handler(SubscriptionClosed(close_status_code, close_msg))
+
+    def _on_open(self, ws):
+        pass
+
+    def close(self):
+        self.ws.close()
