@@ -98,8 +98,12 @@ class SubscriptionResourceRequest(NamedTuple):
 
 
 class RWS:
-    def __init__(self, base_url='http://127.0.0.1:80', username='Default User', password='robotics'):
+    def __init__(self, base_url='http://127.0.0.1:80', username=None, password=None):
         self.base_url=base_url
+        if username is None:
+            username = 'Default User'
+        if password is None:
+            password = 'robotics'
         self.auth=requests.auth.HTTPDigestAuth(username, password)
         self._session=requests.Session()
         self._rmmp_session=None
