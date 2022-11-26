@@ -142,6 +142,9 @@ class RWS:
         if (response.status_code == 503):
             raise Exception("Robot returning 503 too many active connections")
 
+        if response.status_code == 204:
+            return None
+
         response_json = None
         if response.headers["Content-Type"] == 'application/json' and len(response.content) > 0:
             try:            
@@ -213,6 +216,10 @@ class RWS:
         res_json = self._do_get("rw/panel/ctrlstate")
         state = res_json["_embedded"]["_state"][0]
         return state['ctrlstate']
+
+    def set_controller_state(self, ctrl_state):
+        payload = {"ctrl-state": ctrl_state}
+        res=self._do_post("rw/panel/ctrlstate?action=setctrlstate", payload)
     
     def get_operation_mode(self) -> str:
         res_json = self._do_get("rw/panel/opmode")        
@@ -580,6 +587,9 @@ class RWS:
         header={'Cookie': cookie, 'Authorization': self.auth.build_digest_header("GET", ws_url)}
 
         return RWSSubscription(ws_url, header, handler)
+
+    def logout(self):
+        res=self._do_get("logout")
 
 class SubscriptionException(Exception):
     def __init__(self, message):
