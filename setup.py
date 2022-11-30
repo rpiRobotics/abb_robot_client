@@ -19,6 +19,9 @@ setuptools.setup(
         'protobuf',
         'websocket-client'
     ],
+    extras_require={
+        "aio": ["httpx", "websockets"]
+    },
     long_description=long_description,
     long_description_content_type='text/markdown'
 )
