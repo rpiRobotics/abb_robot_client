@@ -1,138 +1,58 @@
 import struct
 import numpy as np
 import io
-import requests
 import datetime
 import re
 import time
-import websocket
 import threading
+import asyncio
 
 from typing import Callable, NamedTuple, Any, List, Union
-from enum import IntEnum
+import httpx
+import websockets
 
-class ABBException(Exception):
-    def __init__(self, message, code):
-        super(ABBException, self).__init__(message)
-        self.code=code
+from .rws import ABBException, RAPIDExecutionState, EventLogEntry, EventLogEntryEvent, TaskState, JointTarget, \
+    RobTarget, IpcMessage, Signal, ControllerState, OperationalMode, VariableValue, SubscriptionResourceType, \
+    SubscriptionResourcePriority, SubscriptionResourceRequest, SubscriptionException, SubscriptionClosed
 
-class RAPIDExecutionState(NamedTuple):
-    ctrlexecstate: Any
-    cycle: Any
-
-class EventLogEntry(NamedTuple):
-    seqnum: int
-    msgtype: int
-    code: int 
-    tstamp: datetime.datetime 
-    args: List[Any]
-    title: str
-    desc: str
-    conseqs: str
-    causes: str
-    actions: str
-
-class EventLogEntryEvent(NamedTuple):
-    seqnum: int
-
-class TaskState(NamedTuple):
-    name: str
-    type_: str
-    taskstate: str
-    excstate: str
-    active: bool
-    motiontask: bool
-
-class JointTarget(NamedTuple):
-    robax: np.array
-    extax: np.array
-
-class RobTarget(NamedTuple):
-    trans: np.array
-    rot: np.array
-    robconf: np.array
-    extax: np.array
-
-
-class IpcMessage(NamedTuple):
-    data: str
-    userdef: str
-    msgtype: str
-    cmd: str
-    queue_name: str
-
-class Signal(NamedTuple):
-    name: str
-    lvalue: str
-
-class ControllerState(NamedTuple):
-    state: str
-
-class OperationalMode(NamedTuple):
-    mode: str
-
-class VariableValue(NamedTuple):
-    name: str
-    value: str
-    task: str = None
-
-class SubscriptionResourceType(IntEnum):
-    ControllerState = 1
-    OperationalMode = 2
-    ExecutionState = 3
-    PersVar = 4
-    IpcQueue = 5
-    Elog = 6
-    Signal = 7
-
-class SubscriptionResourcePriority(IntEnum):
-    Low = 0
-    Medium = 1
-    High = 2
-
-class SubscriptionResourceRequest(NamedTuple):
-    resource_type: SubscriptionResourceType
-    priority: SubscriptionResourcePriority
-    param: Any = None
-
-
-
-class RWS:
+class RWS_AIO:
     def __init__(self, base_url='http://127.0.0.1:80', username=None, password=None):
         self.base_url=base_url
         if username is None:
             username = 'Default User'
         if password is None:
             password = 'robotics'
-        self.auth=requests.auth.HTTPDigestAuth(username, password)
-        self._session=requests.Session()
+        self.auth=httpx.DigestAuth(username, password)
+        self._session=httpx.AsyncClient(auth=self.auth)
         self._rmmp_session=None
         self._rmmp_session_t=None
+        self._websocket = None
+        self._websocket_lock = asyncio.locks.Lock()
         
-    def _do_get(self, relative_url):
+    async def _do_get(self, relative_url):
         url="/".join([self.base_url, relative_url])
         if "?" in url:
             url += "&json=1"
         else:
             url += "?json=1"
-        res=self._session.get(url, auth=self.auth)
+        res=await self._session.get(url)
         try:            
             return self._process_response(res)
         finally:
-            res.close()
+            await res.aclose()
     
 
-    def _do_post(self, relative_url, payload=None):
+    async def _do_post(self, relative_url, payload=None):
         url="/".join([self.base_url, relative_url])
         if "?" in url:
             url += "&json=1"
         else:
             url += "?json=1"
-        res=self._session.post(url, data=payload, auth=self.auth)
+        res=await self._session.post(url, data=payload)
         try:
             return self._process_response(res)
         finally:
-            res.close()
+            await res.aclose()
 
     def _process_response(self, response):        
         
@@ -167,9 +87,9 @@ class RWS:
         
         raise ABBException(error_message, error_code)
 
-    def start(self, cycle: str='asis',tasks: List[str]=['T_ROB1']) -> None:
+    async def start(self, cycle: str='asis',tasks: List[str]=['T_ROB1']) -> None:
 
-        rob_tasks = self.get_tasks()
+        rob_tasks = await self.get_tasks()
         for t in tasks:
             assert t in rob_tasks, f"Cannot start unknown task {t}"
 
@@ -184,68 +104,68 @@ class RWS:
                     self.deactivate_task(rob_task.name)
 
         payload={"regain": "continue", "execmode": "continue" , "cycle": cycle, "condition": "none", "stopatbp": "disabled", "alltaskbytsp": "true"}
-        res=self._do_post("rw/rapid/execution?action=start", payload)
+        res=await self._do_post("rw/rapid/execution?action=start", payload)
 
-    def activate_task(self, task: str) -> None:
+    async def activate_task(self, task: str) -> None:
         payload={}
-        self._do_post(f"rw/rapid/tasks/{task}?action=activate",payload)
+        await self._do_post(f"rw/rapid/tasks/{task}?action=activate",payload)
 
-    def deactivate_task(self, task: str) -> None:
+    async def deactivate_task(self, task: str) -> None:
         payload={}
-        self._do_post(f"rw/rapid/tasks/{task}?action=deactivate",payload)
+        await self._do_post(f"rw/rapid/tasks/{task}?action=deactivate",payload)
 
-    def stop(self) -> None:
+    async def stop(self) -> None:
         payload={"stopmode": "stop"}
-        res=self._do_post("rw/rapid/execution?action=stop", payload)
+        res=await self._do_post("rw/rapid/execution?action=stop", payload)
 
-    def resetpp(self) -> None:
-        res=self._do_post("rw/rapid/execution?action=resetpp")
+    async def resetpp(self) -> None:
+        res=await self._do_post("rw/rapid/execution?action=resetpp")
 
-    def get_ramdisk_path(self) -> str:
-        res_json = self._do_get("ctrl/$RAMDISK")
+    async def get_ramdisk_path(self) -> str:
+        res_json = await self._do_get("ctrl/$RAMDISK")
         return res_json["_embedded"]["_state"][0]["_value"]
 
-    def get_execution_state(self) -> RAPIDExecutionState:
-        res_json = self._do_get("rw/rapid/execution")
+    async def get_execution_state(self) -> RAPIDExecutionState:
+        res_json = await self._do_get("rw/rapid/execution")
         state = res_json["_embedded"]["_state"][0]
         ctrlexecstate=state["ctrlexecstate"]
         cycle=state["cycle"]
         return RAPIDExecutionState(ctrlexecstate, cycle)
     
-    def get_controller_state(self) -> str:
-        res_json = self._do_get("rw/panel/ctrlstate")
+    async def get_controller_state(self) -> str:
+        res_json = await self._do_get("rw/panel/ctrlstate")
         state = res_json["_embedded"]["_state"][0]
         return state['ctrlstate']
 
-    def set_controller_state(self, ctrl_state):
+    async def set_controller_state(self, ctrl_state):
         payload = {"ctrl-state": ctrl_state}
-        res=self._do_post("rw/panel/ctrlstate?action=setctrlstate", payload)
+        res=await self._do_post("rw/panel/ctrlstate?action=setctrlstate", payload)
     
-    def get_operation_mode(self) -> str:
-        res_json = self._do_get("rw/panel/opmode")        
+    async def get_operation_mode(self) -> str:
+        res_json = await self._do_get("rw/panel/opmode")        
         state = res_json["_embedded"]["_state"][0]
         return state["opmode"]
     
-    def get_digital_io(self, signal: str, network: str='Local', unit: str='DRV_1') -> int:
-        res_json = self._do_get("rw/iosystem/signals/" + network + "/" + unit + "/" + signal)
+    async def get_digital_io(self, signal: str, network: str='Local', unit: str='DRV_1') -> int:
+        res_json = await self._do_get("rw/iosystem/signals/" + network + "/" + unit + "/" + signal)
         state = res_json["_embedded"]["_state"][0]["lvalue"]
         return int(state)
     
-    def set_digital_io(self, signal: str, value: Union[bool,int], network: str='Local', unit: str='DRV_1') -> None:
+    async def set_digital_io(self, signal: str, value: Union[bool,int], network: str='Local', unit: str='DRV_1') -> None:
         lvalue = '1' if bool(value) else '0'
         payload={'lvalue': lvalue}
-        res=self._do_post("rw/iosystem/signals/" + network + "/" + unit + "/" + signal + "?action=set", payload)
+        res=await self._do_post("rw/iosystem/signals/" + network + "/" + unit + "/" + signal + "?action=set", payload)
 
-    def get_analog_io(self, signal: str, network: str='Local', unit: str='DRV_1') -> int:
-        res_json = self._do_get("rw/iosystem/signals/" + network + "/" + unit + "/" + signal)
+    async def get_analog_io(self, signal: str, network: str='Local', unit: str='DRV_1') -> int:
+        res_json = await self._do_get("rw/iosystem/signals/" + network + "/" + unit + "/" + signal)
         state = res_json["_embedded"]["_state"][0]["lvalue"]
         return int(state)
     
-    def set_analog_io(self, signal: str, value: int, network: str='Local', unit: str='DRV_1') -> None:
+    async def set_analog_io(self, signal: str, value: int, network: str='Local', unit: str='DRV_1') -> None:
         payload={"mode": "value",'lvalue': value}
-        res=self._do_post("rw/iosystem/signals/" + network + "/" + unit + "/" + signal + "?action=set", payload)
+        res=await self._do_post("rw/iosystem/signals/" + network + "/" + unit + "/" + signal + "?action=set", payload)
     
-    def get_rapid_variables(self, task: str="T_ROB1") -> str:
+    async def get_rapid_variables(self, task: str="T_ROB1") -> str:
         payload={
             "view": "block",
             "vartyp": "any",
@@ -258,49 +178,49 @@ class RWS:
             "posl": "0",
             "posc": "0"
         }
-        res_json = self._do_post(f"rw/rapid/symbols?action=search-symbols", payload)
+        res_json = await self._do_post(f"rw/rapid/symbols?action=search-symbols", payload)
         state = res_json["_embedded"]["_state"]
         return state
 
-    def get_rapid_variable(self, var: str, task: str = "T_ROB1") -> str:
+    async def get_rapid_variable(self, var: str, task: str = "T_ROB1") -> str:
         if task is not None:
             var1 = f"{task}/{var}"
         else:
             var1 = var
-        res_json = self._do_get("rw/rapid/symbol/data/RAPID/" + var1)
+        res_json = await self._do_get("rw/rapid/symbol/data/RAPID/" + var1)
         state = res_json["_embedded"]["_state"][0]["value"]
         return state
     
-    def set_rapid_variable(self, var: str, value: str, task: str = "T_ROB1"):
+    async def set_rapid_variable(self, var: str, value: str, task: str = "T_ROB1"):
         payload={'value': value}
         if task is not None:
             var1 = f"{task}/var"
         else:
             var1 = var
-        res=self._do_post("rw/rapid/symbol/data/RAPID/" + var1 + "?action=set", payload)
+        res=await self._do_post("rw/rapid/symbol/data/RAPID/" + var1 + "?action=set", payload)
         
-    def read_file(self, filename: str) -> bytes:
+    async def read_file(self, filename: str) -> bytes:
         url="/".join([self.base_url, "fileservice", filename])
-        res=self._session.get(url, auth=self.auth)
+        res=await self._session.get(url)
         try:            
             return res.content
         finally:
-            res.close()
+            await res.aclose()
 
-    def upload_file(self, filename: str, contents: bytes) -> None:
+    async def upload_file(self, filename: str, contents: bytes) -> None:
         url="/".join([self.base_url, "fileservice" , filename])
-        res=self._session.put(url, contents, auth=self.auth)
-        assert res.ok, res.reason
-        res.close()
+        res=await self._session.put(url, content=contents)
+        assert res.is_success, res.reason_phrase
+        await res.aclose()
 
-    def delete_file(self, filename: str) -> None:
+    async def delete_file(self, filename: str) -> None:
         url="/".join([self.base_url, "fileservice" , filename])
-        res=self._session.delete(url, auth=self.auth)
-        res.close()
+        res=await self._session.delete(url)
+        await res.aclose()
 
-    def read_event_log(self, elog: int=0) -> List[EventLogEntry]:
+    async def read_event_log(self, elog: int=0) -> List[EventLogEntry]:
         o=[]
-        res_json = self._do_get("rw/elog/" + str(elog) + "/?lang=en")
+        res_json = await self._do_get("rw/elog/" + str(elog) + "/?lang=en")
         state = res_json["_embedded"]["_state"]
         
         for s in state:
@@ -322,9 +242,9 @@ class RWS:
             o.append(EventLogEntry(seqnum,msg_type,code,tstamp,args,title,desc,conseqs,causes,actions))
         return o
 
-    def get_tasks(self) -> List[TaskState]:
+    async def get_tasks(self) -> List[TaskState]:
         o = {}
-        res_json = self._do_get("rw/rapid/tasks")
+        res_json = await self._do_get("rw/rapid/tasks")
         state = res_json["_embedded"]["_state"]
                 
         for s in state:
@@ -345,8 +265,8 @@ class RWS:
         
         return o
 
-    def get_jointtarget(self, mechunit="ROB_1"):
-        res_json=self._do_get("rw/motionsystem/mechunits/" + mechunit + "/jointtarget")
+    async def get_jointtarget(self, mechunit="ROB_1"):
+        res_json=await self._do_get("rw/motionsystem/mechunits/" + mechunit + "/jointtarget")
         state = res_json["_embedded"]["_state"][0]
         assert state["_type"] == "ms-jointtarget"
         robjoint=np.array([state["rax_1"], state["rax_2"], state["rax_3"], state["rax_4"], state["rax_5"], 
@@ -356,8 +276,8 @@ class RWS:
      
         return JointTarget(robjoint,extjoint)
         
-    def get_robtarget(self, mechunit='ROB_1', tool='tool0', wobj='wobj0', coordinate='Base'):
-        res_json=self._do_get(f"rw/motionsystem/mechunits/{mechunit}/robtarget?tool={tool}&wobj={wobj}&coordinate={coordinate}")
+    async def get_robtarget(self, mechunit='ROB_1', tool='tool0', wobj='wobj0', coordinate='Base'):
+        res_json=await self._do_get(f"rw/motionsystem/mechunits/{mechunit}/robtarget?tool={tool}&wobj={wobj}&coordinate={coordinate}")
         state = res_json["_embedded"]["_state"][0]
         assert state["_type"] == "ms-robtargets"
         trans=np.array([state["x"], state["y"], state["z"]], dtype=np.float64)
@@ -381,13 +301,13 @@ class RWS:
         rws_value="[[" + robax + "],[" + extax + "]]"
         return rws_value
     
-    def get_rapid_variable_jointtarget(self, var, task: str = "T_ROB1"):
-        v = self.get_rapid_variable(var, task)
+    async def get_rapid_variable_jointtarget(self, var, task: str = "T_ROB1"):
+        v = await self.get_rapid_variable(var, task)
         return self._rws_value_to_jointtarget(v)
     
-    def set_rapid_variable_jointtarget(self,var,value, task: str = "T_ROB1"):
+    async def set_rapid_variable_jointtarget(self,var,value, task: str = "T_ROB1"):
         rws_value=self._jointtarget_to_rws_value(value)
-        self.set_rapid_variable(var, rws_value, task)
+        await self.set_rapid_variable(var, rws_value, task)
             
     def _rws_value_to_jointtarget_array(self,val):
         m1=re.match('^\\[(.*)\\]$',val)
@@ -405,30 +325,30 @@ class RWS:
     def _jointtarget_array_to_rws_value(self, val):
         return "[" + ','.join([self._jointtarget_to_rws_value(v) for v in val]) + "]"
     
-    def get_rapid_variable_jointtarget_array(self, var, task: str = "T_ROB1"):
-        v = self.get_rapid_variable(var, task)
+    async def get_rapid_variable_jointtarget_array(self, var, task: str = "T_ROB1"):
+        v = await self.get_rapid_variable(var, task)
         return self._rws_value_to_jointtarget_array(v)
     
-    def set_rapid_variable_jointtarget_array(self,var,value, task: str = "T_ROB1"):
+    async def set_rapid_variable_jointtarget_array(self,var,value, task: str = "T_ROB1"):
         rws_value=self._jointtarget_array_to_rws_value(value)
-        self.set_rapid_variable(var, rws_value, task)
+        await self.set_rapid_variable(var, rws_value, task)
 
-    def get_rapid_variable_num(self, var, task: str = "T_ROB1"):
-        return float(self.get_rapid_variable(var,task))
+    async def get_rapid_variable_num(self, var, task: str = "T_ROB1"):
+        return float(await self.get_rapid_variable(var,task))
     
-    def set_rapid_variable_num(self, var, val, task: str = "T_ROB1"):
-        self.set_rapid_variable(var, str(val), task)
+    async def set_rapid_variable_num(self, var, val, task: str = "T_ROB1"):
+        await self.set_rapid_variable(var, str(val), task)
         
-    def get_rapid_variable_num_array(self, var, task: str = "T_ROB1"):
-        val1=self.get_rapid_variable(var,task)
+    async def get_rapid_variable_num_array(self, var, task: str = "T_ROB1"):
+        val1=await self.get_rapid_variable(var,task)
         m=re.match("^\\[([^\\]]*)\\]$", val1)
         val2=m.groups()[0].strip()
         return np.fromstring(val2,sep=',')
     
-    def set_rapid_variable_num_array(self, var, val, task: str = "T_ROB1"):
-        self.set_rapid_variable(var, "[" + ','.join([str(s) for s in val]) + "]", task)
+    async def set_rapid_variable_num_array(self, var, val, task: str = "T_ROB1"):
+        await self.set_rapid_variable(var, "[" + ','.join([str(s) for s in val]) + "]", task)
 
-    def read_ipc_message(self, queue_name, timeout=0):
+    async def read_ipc_message(self, queue_name, timeout=0):
         
         o=[]
         
@@ -436,7 +356,7 @@ class RWS:
         if timeout > 0:
             timeout_str="&timeout=" + str(timeout)
         
-        res_json=self._do_get("rw/dipc/" + queue_name + "/?action=dipc-read" + timeout_str)
+        res_json=await self._do_get("rw/dipc/" + queue_name + "/?action=dipc-read" + timeout_str)
         for state in res_json["_embedded"]["_state"]:
             assert state["_type"] == "dipc-read-li"
      
@@ -446,28 +366,28 @@ class RWS:
             #o.append(RAPIDEventLogEntry(msg_type,code,tstamp,args,title,desc,conseqs,causes,actions))
         return o
     
-    def send_ipc_message(self, target_queue, data, queue_name, cmd=111, userdef=1, msgtype=1 ):
+    async def send_ipc_message(self, target_queue, data, queue_name, cmd=111, userdef=1, msgtype=1 ):
         payload={"dipc-src-queue-name": queue_name, "dipc-cmd": str(cmd), "dipc-userdef": str(userdef), \
                  "dipc-msgtype": str(msgtype), "dipc-data": data}
-        res=self._do_post("rw/dipc/" + target_queue + "?action=dipc-send", payload)
+        res=await self._do_post("rw/dipc/" + target_queue + "?action=dipc-send", payload)
     
-    def get_ipc_queue(self, queue_name):
-        res=self._do_get("rw/dipc/" + queue_name + "?action=dipc-read")
+    async def get_ipc_queue(self, queue_name):
+        res=await self._do_get("rw/dipc/" + queue_name + "?action=dipc-read")
         return res
     
-    def try_create_ipc_queue(self, queue_name, queue_size=4440, max_msg_size=444):
+    async def try_create_ipc_queue(self, queue_name, queue_size=4440, max_msg_size=444):
         try:
             payload={"dipc-queue-name": queue_name, "dipc-queue-size": str(queue_size), "dipc-max-msg-size": str(max_msg_size)}
-            self._do_post("rw/dipc?action=dipc-create", payload)
+            await self._do_post("rw/dipc?action=dipc-create", payload)
             return True
         except ABBException as e:
             if e.code==-1073445879:
                 return False
             raise
     
-    def request_rmmp(self, timeout=5):
+    async def request_rmmp(self, timeout=5):
         t1=time.time()
-        self._do_post('users/rmmp?json=1', {'privilege': 'modify'})
+        await self._do_post('users/rmmp?json=1', {'privilege': 'modify'})
         while time.time() - t1 < timeout:
             
             res_json=self._do_get('users/rmmp/poll?json=1')
@@ -475,14 +395,14 @@ class RWS:
             assert state["_type"] == "user-rmmp-poll"
             status = state["status"]
             if status=="GRANTED":
-                self.poll_rmmp()
+                await self.poll_rmmp()
                 return
             elif status!="PENDING":
                 raise Exception("User did not grant remote access")                               
-            time.sleep(0.25)
+            await asyncio.sleep(0.25)
         raise Exception("User did not grant remote access")
     
-    def poll_rmmp(self):
+    async def poll_rmmp(self):
         
         # A "persistent session" can only make 400 calls before
         # being disconnected. Once this connection is lost,
@@ -495,22 +415,22 @@ class RWS:
         old_rmmp_session=None
         if self._rmmp_session is None:
             self._do_get(url)
-            self._rmmp_session=requests.Session()
+            self._rmmp_session=httpx.AsyncClient()
             self._rmmp_session_t=time.time()            
             
             for c in self._session.cookies:
-                self._rmmp_session.cookies.set_cookie(c) 
+                self._rmmp_session.cookies.set(c) 
         else:
             if time.time() - self._rmmp_session_t > 30:
                 old_rmmp_session=self._rmmp_session
-                rmmp_session=requests.Session()
+                rmmp_session=httpx.AsyncClient()
                 
                 for c in self._session.cookies:
-                    rmmp_session.cookies.set_cookie(c)
+                    rmmp_session.cookies.set(c)
         
         rmmp_session=self._rmmp_session        
                 
-        res=rmmp_session.get(url, auth=self.auth)
+        res=await rmmp_session.get(url)
         res_json=self._process_response(res)
         state = res_json["_embedded"]["_state"][0]
         assert state["_type"] == "user-rmmp-poll"
@@ -519,14 +439,24 @@ class RWS:
             self._rmmp_session=rmmp_session
             self._rmmp_session_t=time.time()
             try:
-                old_rmmp_session.close()
+                old_rmmp_session.aclose()
             except:
                 pass
        
         return state["status"] == "GRANTED"
 
+    async def logout(self):
+        try:
+            res=await self._do_get("logout")
+        finally:
+            try:
+                await self._session.aclose()
+            except Exception:
+                pass
 
-    def subscribe(self, resources: List[SubscriptionResourceRequest], handler: Callable):
+    async def subscribe(self, resources: List[SubscriptionResourceRequest]):
+        
+        self._init_subscription_convert_message()
 
         payload = {}
         payload_ind = 0
@@ -571,11 +501,11 @@ class RWS:
 
                 
         url="/".join([self.base_url, "subscription"]) + "?json=1"
-        res1=self._session.post(url, data=payload, auth=self.auth)
+        res1=await self._session.post(url, data=payload)
         try:
             res=self._process_response(res1)
         finally:
-            res1.close()
+            await res1.aclose()
 
         assert res1.status_code == 201, "Subscription creation failed"
 
@@ -583,26 +513,29 @@ class RWS:
         assert m
         ws_url = m.group(1)
         
-        cookie = f"ABBCX={self._session.cookies['ABBCX']}"
-        header={'Cookie': cookie, 'Authorization': self.auth.build_digest_header("GET", ws_url)}
+        cookie = f"-http-session-={self._session.cookies['-http-session-']}; ABBCX={self._session.cookies['ABBCX']}"
+        
+        header={'Cookie': cookie}
 
-        return RWSSubscription(ws_url, header, handler)
+        async with self._websocket_lock:
+            assert self._websocket is None, "Subscription already created"
 
-    def logout(self):
-        res=self._do_get("logout")
+            self._websocket = await websockets.connect(
+                ws_url, 
+                extra_headers = header,
+                subprotocols=['robapi2_subscription']
+            )
 
-class SubscriptionException(Exception):
-    def __init__(self, message):
-        super().__init__(message)
-
-class SubscriptionClosed(NamedTuple):
-    code: int
-    msg: str
-
-class RWSSubscription:
-    def __init__(self, ws_url, header, handler):
-        self.handler = handler
-
+        try:
+            while True:
+                message = await self._websocket.recv()
+                conv_message = self._convert_subscription_message(message)
+                if conv_message is not None:
+                    yield conv_message
+        finally:
+            await self._websocket.close()            
+    
+    def _init_subscription_convert_message(self):
         self._signal_re = re.compile(r'<a\s+href="/rw/iosystem/signals/([^"]+);state"\s+rel="self"/?>.*<span\s+class="lvalue">([^<]+)<')
         self._pers_re = re.compile(r'<a\s+href="/rw/rapid/symbol/data/RAPID/([^"]+);value"\s+rel="self"/?>.*<span\s+class="value">([^<]+)<')
         self._elog_re = re.compile(r'<a\s+href="/rw/elog/0/([^"]+)"\s+rel="self"/?>.*<span\s+class="seqnum">([^<]+)<')
@@ -611,67 +544,41 @@ class RWSSubscription:
         self._ctrl_re = re.compile(r'<a\s+href="/rw/panel/ctrlstate"\s+rel="self"/?>.*<span\s+class="ctrlstate">([^<]+)<')
         self._ipc_re = re.compile(r'<a\s+href="/rw/dipc/([^"]*)".*<span\s+class="dipc-data">([^<]+)<.*<span\s+class="dipc-userdef">([^<]+)<')
 
-        self.ws = websocket.WebSocketApp(
-            ws_url, 
-            header = header,
-            on_open = self._on_open,
-            on_message = self._on_message,
-            on_error = self._on_error,
-            on_close = self._on_close,
-            subprotocols=['robapi2_subscription']
-            )
-
-        self.thread = threading.Thread(target=self._run)
-        self.thread.daemon=True
-        self.thread.start()
-
-    def _run(self):
-        self.ws.run_forever(reconnect = 0.1)
-
-    def _on_message(self, ws, message):
+    def _convert_subscription_message(self, message):
         if 'li class="ios-signalstate-ev"' in message:
             m = self._signal_re.search(message)
             if m is not None:
                 sig_path = m.group(1).split('/')
-                self.handler(Signal(sig_path[-1], m.group(2)))
+                return Signal(sig_path[-1], m.group(2))
         elif 'li class="rap-data"' in message:
             m = self._pers_re.search(message)
             if m is not None:
                 pers_path = m.group(1).split('/')
                 if len(pers_path) == 1:            
-                    self.handler(VariableValue(pers_path[0], m.group(2)))
+                    return VariableValue(pers_path[0], m.group(2))
                 else:
-                    self.handler(VariableValue(pers_path[0], m.group(2), pers_path[-1]))
+                    return VariableValue(pers_path[0], m.group(2), pers_path[-1])
         elif 'li class="elog-message-ev"' in message:
             m = self._elog_re.search(message)
             if m is not None:
-                self.handler(EventLogEntryEvent(m.group(2)))
+                return EventLogEntryEvent(m.group(2))
         elif 'li class="rap-ctrlexecstate-ev"' in message:
             m = self._exec_re.search(message)
             if m is not None:
-                self.handler(RAPIDExecutionState(m.group(1),''))
+                return RAPIDExecutionState(m.group(1),'')
         elif 'li class="pnl-opmode-ev"' in message:
             m = self._opmode_re.search(message)
             if m is not None:
-                self.handler(OperationalMode(m.group(1)))
+                return OperationalMode(m.group(1))
         elif 'li class="pnl-ctrlstate-ev"' in message:
             m = self._ctrl_re.search(message)
             if m is not None:
-                self.handler(ControllerState(m.group(1)))
+                return ControllerState(m.group(1))
         elif 'li class="dipc-msg-ev"' in message:
             m = self._ipc_re.search(message)
             if m is not None:
-                self.handler(IpcMessage(queue_name=m.group(1), data=m.group(2), userdef=m.group(3), msgtype="", cmd=""))
-                
+                return IpcMessage(queue_name=m.group(1), data=m.group(2), userdef=m.group(3), msgtype="", cmd="")
+        return UnknownSubscriptionMessage(message)
 
-    def _on_error(self, ws, error):
-        self.handler(SubscriptionException(error))
-
-    def _on_close(self, ws, close_status_code, close_msg):
-        self.handler(SubscriptionClosed(close_status_code, close_msg))
-
-    def _on_open(self, ws):
-        pass
-
-    def close(self):
-        self.ws.close()
+class UnknownSubscriptionMessage(NamedTuple):
+    xml: str
