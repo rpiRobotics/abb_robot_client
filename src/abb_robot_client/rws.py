@@ -282,6 +282,7 @@ class RWS:
     def read_file(self, filename: str) -> bytes:
         url="/".join([self.base_url, "fileservice", filename])
         res=self._session.get(url, auth=self.auth)
+        assert res.ok, f"File not found {filename}"
         try:            
             return res.content
         finally:
@@ -297,6 +298,11 @@ class RWS:
         url="/".join([self.base_url, "fileservice" , filename])
         res=self._session.delete(url, auth=self.auth)
         res.close()
+
+    def list_files(self, path: str) -> List[str]:
+        res_json = self._do_get("fileservice/" + str(path) + "")
+        state = res_json["_embedded"]["_state"]
+        return [f["_title"] for f in state]
 
     def read_event_log(self, elog: int=0) -> List[EventLogEntry]:
         o=[]

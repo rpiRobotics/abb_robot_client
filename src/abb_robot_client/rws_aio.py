@@ -202,6 +202,7 @@ class RWS_AIO:
     async def read_file(self, filename: str) -> bytes:
         url="/".join([self.base_url, "fileservice", filename])
         res=await self._session.get(url)
+        assert res.is_success, f"File not found {filename}"
         try:            
             return res.content
         finally:
@@ -217,6 +218,11 @@ class RWS_AIO:
         url="/".join([self.base_url, "fileservice" , filename])
         res=await self._session.delete(url)
         await res.aclose()
+
+    async def list_files(self, path: str) -> List[str]:
+        res_json = await self._do_get("fileservice/" + str(path) + "")
+        state = res_json["_embedded"]["_state"]
+        return [f["_title"] for f in state]
 
     async def read_event_log(self, elog: int=0) -> List[EventLogEntry]:
         o=[]
