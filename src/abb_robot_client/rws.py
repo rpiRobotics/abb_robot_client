@@ -585,9 +585,9 @@ class RWS:
 
         assert res1.status_code == 201, "Subscription creation failed"
 
-        m = re.search(r'<a href="(ws:\/\/.*\/poll\/\d+)" rel="self">', res1.content.decode("ascii"))
+        m = re.search(r'<a href="ws:\/\/.*(\/poll\/\d+)" rel="self">', res1.content.decode("ascii"))
         assert m
-        ws_url = m.group(1)
+        ws_url = self.base_url.replace("http:","ws:") + m.group(1)
         
         cookie = f"ABBCX={self._session.cookies['ABBCX']}"
         header={'Cookie': cookie, 'Authorization': self.auth.build_digest_header("GET", ws_url)}
