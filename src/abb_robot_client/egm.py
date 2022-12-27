@@ -25,7 +25,7 @@ class EGMRobotState(NamedTuple):
     State information returned from robot through EGM
     """
     joint_angles: np.array
-    """Joint angles of robot in radians. Length is 6 or 7 depending on robot"""
+    """Joint angles of robot in degrees. Length is 6 or 7 depending on robot"""
     rapid_running: bool
     """True if RAPID program is running on controller"""
     motors_on: bool 
@@ -112,7 +112,7 @@ class EGM(object):
         Send a joint command to robot. Returns False if no data has been received from the robot yet. The EGM
         operation must have been started with EGMActJoint and EGMRunJoint.
 
-        :param joint_angles: Joint angle command in radians
+        :param joint_angles: Joint angle command in degrees
         :return: True if successful, False if no data received from robot yet
         """
 
