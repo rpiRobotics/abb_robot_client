@@ -16,6 +16,16 @@ from .rws import ABBException, RAPIDExecutionState, EventLogEntry, EventLogEntry
     SubscriptionResourcePriority, SubscriptionResourceRequest, SubscriptionException, SubscriptionClosed
 
 class RWS_AIO:
+    """
+    Robot Web Services asyncio client. This class has the same functionality as :class:`abb_robot_client.rws.RWS`, but 
+    uses asyncio instead of synchronous interface.
+
+    :param base_url: Base URL of the robot. For Robot Studio instances, this should be http://127.0.0.1:80,
+                     the default value. For a real robot, 127.0.0.1 should be replaced with the IP address
+                     of the robot controller. The WAN port ethernet must be used, not the maintenance port.
+    :param username: The HTTP username for the robot. Defaults to 'Default User'
+    :param password: The HTTP password for the robot. Defaults to 'robotics'
+    """
     def __init__(self, base_url='http://127.0.0.1:80', username=None, password=None):
         self.base_url=base_url
         if username is None:
@@ -87,8 +97,13 @@ class RWS_AIO:
         
         raise ABBException(error_message, error_code)
 
-    async def start(self, cycle: str='asis',tasks: List[str]=['T_ROB1']) -> None:
+    async def start(self, cycle: str='asis',tasks: List[str]=['T_ROB1']):
+        """
+        Start one or more RAPID tasks
 
+        :param cycle: The cycle mode of the robot. Can be `asis`, `once`, or `forever`.
+        :param tasks: One or more tasks to start.
+        """
         rob_tasks = await self.get_tasks()
         for t in tasks:
             assert t in rob_tasks, f"Cannot start unknown task {t}"
@@ -106,26 +121,52 @@ class RWS_AIO:
         payload={"regain": "continue", "execmode": "continue" , "cycle": cycle, "condition": "none", "stopatbp": "disabled", "alltaskbytsp": "true"}
         res=await self._do_post("rw/rapid/execution?action=start", payload)
 
-    async def activate_task(self, task: str) -> None:
+    async def activate_task(self, task: str):
+        """
+        Activate a RAPID task
+
+        :param task: The name of the task to activate
+        """
         payload={}
         await self._do_post(f"rw/rapid/tasks/{task}?action=activate",payload)
 
-    async def deactivate_task(self, task: str) -> None:
+    async def deactivate_task(self, task: str):
+        """
+        Deactivate a RAPID task
+
+        :param task: The name of the task to activate
+        """
         payload={}
         await self._do_post(f"rw/rapid/tasks/{task}?action=deactivate",payload)
 
-    async def stop(self) -> None:
+    async def stop(self):
+        """
+        Stop RAPID execution of normal tasks
+        """
         payload={"stopmode": "stop"}
         res=await self._do_post("rw/rapid/execution?action=stop", payload)
 
-    async def resetpp(self) -> None:
+    async def resetpp(self):
+        """
+        Reset RAPID program pointer to main in normal tasks
+        """
         res=await self._do_post("rw/rapid/execution?action=resetpp")
 
     async def get_ramdisk_path(self) -> str:
+        """
+        Get the path of the RAMDISK variable on the controller
+
+        :return: The RAMDISK path
+        """
         res_json = await self._do_get("ctrl/$RAMDISK")
         return res_json["_embedded"]["_state"][0]["_value"]
 
     async def get_execution_state(self) -> RAPIDExecutionState:
+        """
+        Get the RAPID execution state
+
+        :return: The RAPID execution state
+        """
         res_json = await self._do_get("rw/rapid/execution")
         state = res_json["_embedded"]["_state"][0]
         ctrlexecstate=state["ctrlexecstate"]
@@ -133,6 +174,15 @@ class RWS_AIO:
         return RAPIDExecutionState(ctrlexecstate, cycle)
     
     async def get_controller_state(self) -> str:
+        """
+        Get the controller state. The controller state can have the following values:
+
+        `init`, `motoroff`, `motoron`, `guardstop`, `emergencystop`, `emergencystopreset`, `sysfail`
+
+        RAPID can only be executed and the robot can only be moved in the `motoron` state.
+
+        :return: The controller state
+        """
         res_json = await self._do_get("rw/panel/ctrlstate")
         state = res_json["_embedded"]["_state"][0]
         return state['ctrlstate']
@@ -142,30 +192,77 @@ class RWS_AIO:
         res=await self._do_post("rw/panel/ctrlstate?action=setctrlstate", payload)
     
     async def get_operation_mode(self) -> str:
+        """
+        Get the controller operational mode. The controller operational mode can have the following values:
+
+        `INIT`, `AUTO_CH`, `MANF_CH`, `MANR`, `MANF`, `AUTO`, `UNDEF`
+
+        Typical values returned by the controller are `AUTO` for auto mode, and `MANR` for manual reduced-speed mode.
+        
+        :return: The controller operational mode.
+        """
         res_json = await self._do_get("rw/panel/opmode")        
         state = res_json["_embedded"]["_state"][0]
         return state["opmode"]
     
     async def get_digital_io(self, signal: str, network: str='Local', unit: str='DRV_1') -> int:
+        """
+        Get the value of a digital IO signal.
+
+        :param signal: The name of the signal
+        :param network: The network the signal is on. The default `Local` will work for most signals.
+        :param unit: The drive unit of the signal. The default `DRV_1` will work for most signals.
+        :return: The value of the signal. Typically 1 for ON and 0 for OFF
+        """
         res_json = await self._do_get("rw/iosystem/signals/" + network + "/" + unit + "/" + signal)
         state = res_json["_embedded"]["_state"][0]["lvalue"]
         return int(state)
     
-    async def set_digital_io(self, signal: str, value: Union[bool,int], network: str='Local', unit: str='DRV_1') -> None:
+    async def set_digital_io(self, signal: str, value: Union[bool,int], network: str='Local', unit: str='DRV_1'):
+        """
+        Set the value of an digital IO signal.
+
+        :param value: The value of the signal. Bool or bool convertible input
+        :param signal: The name of the signal
+        :param network: The network the signal is on. The default `Local` will work for most signals.
+        :param unit: The drive unit of the signal. The default `DRV_1` will work for most signals.
+        """
         lvalue = '1' if bool(value) else '0'
         payload={'lvalue': lvalue}
         res=await self._do_post("rw/iosystem/signals/" + network + "/" + unit + "/" + signal + "?action=set", payload)
 
-    async def get_analog_io(self, signal: str, network: str='Local', unit: str='DRV_1') -> int:
+    async def get_analog_io(self, signal: str, network: str='Local', unit: str='DRV_1') -> float:
+        """
+        Get the value of an analog IO signal.
+
+        :param signal: The name of the signal
+        :param network: The network the signal is on. The default `Local` will work for most signals.
+        :param unit: The drive unit of the signal. The default `DRV_1` will work for most signals.
+        :return: The value of the signal
+        """
         res_json = await self._do_get("rw/iosystem/signals/" + network + "/" + unit + "/" + signal)
         state = res_json["_embedded"]["_state"][0]["lvalue"]
-        return int(state)
+        return float(state)
     
-    async def set_analog_io(self, signal: str, value: int, network: str='Local', unit: str='DRV_1') -> None:
+    async def set_analog_io(self, signal: str, value: int, network: str='Local', unit: str='DRV_1'):
+        """
+        Set the value of an analog IO signal.
+
+        :param value: The value of the signal
+        :param signal: The name of the signal
+        :param network: The network the signal is on. The default `Local` will work for most signals.
+        :param unit: The drive unit of the signal. The default `DRV_1` will work for most signals.
+        """
         payload={"mode": "value",'lvalue': value}
         res=await self._do_post("rw/iosystem/signals/" + network + "/" + unit + "/" + signal + "?action=set", payload)
     
     async def get_rapid_variables(self, task: str="T_ROB1") -> str:
+        """
+        Get a list of the persistent variables in a task
+
+        :param task: The RAPID task to query
+        :return: List of persistent variables in task
+        """
         payload={
             "view": "block",
             "vartyp": "any",
@@ -183,6 +280,13 @@ class RWS_AIO:
         return state
 
     async def get_rapid_variable(self, var: str, task: str = "T_ROB1") -> str:
+        """
+        Get value of a RAPID pers variable
+
+        :param var: The pers variable name
+        :param task: The task containing the pers variable
+        :return: The pers variable encoded as a string
+        """
         if task is not None:
             var1 = f"{task}/{var}"
         else:
@@ -192,6 +296,13 @@ class RWS_AIO:
         return state
     
     async def set_rapid_variable(self, var: str, value: str, task: str = "T_ROB1"):
+        """
+        Set value of a RAPID pers variable
+
+        :param var: The pers variable name
+        :param value: The new variable value encoded as a string
+        :param task: The task containing the pers variable
+        """
         payload={'value': value}
         if task is not None:
             var1 = f"{task}/var"
@@ -200,6 +311,12 @@ class RWS_AIO:
         res=await self._do_post("rw/rapid/symbol/data/RAPID/" + var1 + "?action=set", payload)
         
     async def read_file(self, filename: str) -> bytes:
+        """
+        Read a file off the controller
+
+        :param filename: The filename to read
+        :return: The file bytes
+        """
         url="/".join([self.base_url, "fileservice", filename])
         res=await self._session.get(url)
         assert res.is_success, f"File not found {filename}"
@@ -209,22 +326,45 @@ class RWS_AIO:
             await res.aclose()
 
     async def upload_file(self, filename: str, contents: bytes) -> None:
+        """
+        Upload a file to the controller
+
+        :param filename: The filename to write
+        :param contents: The file content bytes
+        """
         url="/".join([self.base_url, "fileservice" , filename])
         res=await self._session.put(url, content=contents)
         assert res.is_success, res.reason_phrase
         await res.aclose()
 
     async def delete_file(self, filename: str) -> None:
+        """
+        Delete a file on the controller
+
+        :param filename: The filename to delete
+        """
         url="/".join([self.base_url, "fileservice" , filename])
         res=await self._session.delete(url)
         await res.aclose()
 
     async def list_files(self, path: str) -> List[str]:
+        """
+        List files at a path on a controller
+
+        :param path: The path to list
+        :return: The filenames in the path
+        """
         res_json = await self._do_get("fileservice/" + str(path) + "")
         state = res_json["_embedded"]["_state"]
         return [f["_title"] for f in state]
 
     async def read_event_log(self, elog: int=0) -> List[EventLogEntry]:
+        """
+        Read the controller event log
+
+        :param elog: The event log id to read
+        :return: The event log entries        
+        """
         o=[]
         res_json = await self._do_get("rw/elog/" + str(elog) + "/?lang=en")
         state = res_json["_embedded"]["_state"]
@@ -249,6 +389,11 @@ class RWS_AIO:
         return o
 
     async def get_tasks(self) -> List[TaskState]:
+        """
+        Get controller tasks and task state
+
+        :return: The tasks and task state
+        """
         o = {}
         res_json = await self._do_get("rw/rapid/tasks")
         state = res_json["_embedded"]["_state"]
@@ -271,7 +416,13 @@ class RWS_AIO:
         
         return o
 
-    async def get_jointtarget(self, mechunit="ROB_1"):
+    async def get_jointtarget(self, mechunit: str="ROB_1"):
+        """
+        Get the current jointtarget for specified mechunit
+
+        :param mechunit: The mechanical unit to read
+        :return: The current jointtarget
+        """
         res_json=await self._do_get("rw/motionsystem/mechunits/" + mechunit + "/jointtarget")
         state = res_json["_embedded"]["_state"][0]
         assert state["_type"] == "ms-jointtarget"
@@ -282,7 +433,17 @@ class RWS_AIO:
      
         return JointTarget(robjoint,extjoint)
         
-    async def get_robtarget(self, mechunit='ROB_1', tool='tool0', wobj='wobj0', coordinate='Base'):
+    async def get_robtarget(self, mechunit: str='ROB_1', tool: str='tool0', wobj: str='wobj0', coordinate: str='Base'):
+        """
+        Get the current robtarget (cartesian pose) for the specified mechunit
+
+        :param mechunit: The mechanical unit to read
+        :param tool: The tool to use to compute robtarget
+        :param wobj: The wobj to use to compute robtarget
+        :param coordinate: The coordinate system to use to compute robtarget. Can be `Base`, `World`, `Tool`, or `Wobj`
+        :return: The current robtarget
+
+        """
         res_json=await self._do_get(f"rw/motionsystem/mechunits/{mechunit}/robtarget?tool={tool}&wobj={wobj}&coordinate={coordinate}")
         state = res_json["_embedded"]["_state"][0]
         assert state["_type"] == "ms-robtargets"
@@ -307,11 +468,25 @@ class RWS_AIO:
         rws_value="[[" + robax + "],[" + extax + "]]"
         return rws_value
     
-    async def get_rapid_variable_jointtarget(self, var, task: str = "T_ROB1"):
+    async def get_rapid_variable_jointtarget(self, var: str, task: str = "T_ROB1"):
+        """
+        Get a RAPID pers variable and convert to JointTarget
+
+        :param var: The pers variable name
+        :param task: The task containing the pers variable
+        :return: The pers variable encoded as a JointTarget
+        """
         v = await self.get_rapid_variable(var, task)
         return self._rws_value_to_jointtarget(v)
     
-    async def set_rapid_variable_jointtarget(self,var,value, task: str = "T_ROB1"):
+    async def set_rapid_variable_jointtarget(self,var: str, value: JointTarget, task: str = "T_ROB1"):
+        """
+        Set a RAPID pers variable from a JointTarget
+
+        :param var: The pers variable name
+        :param value: The new variable JointTarget value
+        :param task: The task containing the pers variable
+        """
         rws_value=self._jointtarget_to_rws_value(value)
         await self.set_rapid_variable(var, rws_value, task)
             
@@ -332,29 +507,79 @@ class RWS_AIO:
         return "[" + ','.join([self._jointtarget_to_rws_value(v) for v in val]) + "]"
     
     async def get_rapid_variable_jointtarget_array(self, var, task: str = "T_ROB1"):
+        """
+        Get a RAPID pers variable and convert to JointTarget list
+
+        :param var: The pers variable name
+        :param task: The task containing the pers variable
+        :return: The pers variable encoded as a list of JointTarget
+        """
         v = await self.get_rapid_variable(var, task)
         return self._rws_value_to_jointtarget_array(v)
     
-    async def set_rapid_variable_jointtarget_array(self,var,value, task: str = "T_ROB1"):
+    async def set_rapid_variable_jointtarget_array(self,var: str, value: List[JointTarget], task: str = "T_ROB1"):
+        """
+        Set a RAPID pers variable from a JointTarget list
+
+        :param var: The pers variable name
+        :param value: The new variable JointTarget value
+        :param task: The task containing the pers variable
+        """
         rws_value=self._jointtarget_array_to_rws_value(value)
         await self.set_rapid_variable(var, rws_value, task)
 
-    async def get_rapid_variable_num(self, var, task: str = "T_ROB1"):
+    async def get_rapid_variable_num(self, var: str, task: str = "T_ROB1"):
+        """
+        Get a RAPID pers variable and convert to float
+
+        :param var: The pers variable name
+        :param task: The task containing the pers variable
+        :return: The pers variable encoded as a float
+        """
         return float(await self.get_rapid_variable(var,task))
     
-    async def set_rapid_variable_num(self, var, val, task: str = "T_ROB1"):
+    async def set_rapid_variable_num(self, var: str, val: float, task: str = "T_ROB1"):
+        """
+        Set a RAPID pers variable from a float
+
+        :param var: The pers variable name
+        :param value: The new variable float value
+        :param task: The task containing the pers variable
+        """
         await self.set_rapid_variable(var, str(val), task)
         
-    async def get_rapid_variable_num_array(self, var, task: str = "T_ROB1"):
+    async def get_rapid_variable_num_array(self, var, task: str = "T_ROB1") -> np.ndarray:
+        """
+        Get a RAPID pers variable float array
+
+        :param var: The pers variable name
+        :param task: The task containing the pers variable
+        :return: The variable value as an array
+        """
         val1=await self.get_rapid_variable(var,task)
         m=re.match("^\\[([^\\]]*)\\]$", val1)
         val2=m.groups()[0].strip()
         return np.fromstring(val2,sep=',')
     
-    async def set_rapid_variable_num_array(self, var, val, task: str = "T_ROB1"):
+    async def set_rapid_variable_num_array(self, var: str, val: List[float], task: str = "T_ROB1"):
+        """
+        Set a RAPID pers variable from a float list or array
+
+        :param var: The pers variable name
+        :param value: The new variable float array value
+        :param task: The task containing the pers variable
+        """
         await self.set_rapid_variable(var, "[" + ','.join([str(s) for s in val]) + "]", task)
 
-    async def read_ipc_message(self, queue_name, timeout=0):
+    async def read_ipc_message(self, queue_name: str, timeout: float=0) -> List[IpcMessage]:
+        """
+        Read IPC message. IPC is used to communicate with RMQ in controller tasks. Create IPC using 
+        try_create_ipc_queue().
+
+        :param queue_name: The name of the queue created using try_create_ipc_queue()
+        :param timeout: The timeout to receive a message in seconds
+        :return: Messages received from IPC queue
+        """
         
         o=[]
         
@@ -372,16 +597,42 @@ class RWS_AIO:
             #o.append(RAPIDEventLogEntry(msg_type,code,tstamp,args,title,desc,conseqs,causes,actions))
         return o
     
-    async def send_ipc_message(self, target_queue, data, queue_name, cmd=111, userdef=1, msgtype=1 ):
+    async def send_ipc_message(self, target_queue: str, data: str, queue_name: str, cmd: int=111, userdef: int=1, msgtype: int=1 ):
+        """
+        Send an IPC message to the specified queue
+
+        :param target_queue: The target IPC queue. Can also be the name of a task to send to RMQ of controller task.
+        :param data: The data to send to the controller. Encoding must match the expected type of RMQ
+        :param queue_name: The queue to send message from. Must be created with try_create_ipc_queue()
+        :param cmd: The cmd entry in the message
+        :param userdef: User defined value
+        :param msgtype: The type of message. Must be 0 or 1
+        """
+
         payload={"dipc-src-queue-name": queue_name, "dipc-cmd": str(cmd), "dipc-userdef": str(userdef), \
                  "dipc-msgtype": str(msgtype), "dipc-data": data}
         res=await self._do_post("rw/dipc/" + target_queue + "?action=dipc-send", payload)
     
     async def get_ipc_queue(self, queue_name):
+        """
+        Get the IPC queue
+
+        :param queue_name: The name of the queue
+        """
         res=await self._do_get("rw/dipc/" + queue_name + "?action=dipc-read")
         return res
     
-    async def try_create_ipc_queue(self, queue_name, queue_size=4440, max_msg_size=444):
+    async def try_create_ipc_queue(self, queue_name: str, queue_size: int=4440, max_msg_size: int=444):
+        """
+        Try creating an IPC queue. Returns True if the queue is created, False if queue already exists. Raises
+        exception for all other errors.
+
+        :param queue_name: The name of the new IPC queue
+        :param queue_size: The buffer size of the queue
+        :param max_msg_size: The maximum message size of the queue
+        :return: True if queue created, False if queue already exists
+        
+        """
         try:
             payload={"dipc-queue-name": queue_name, "dipc-queue-size": str(queue_size), "dipc-max-msg-size": str(max_msg_size)}
             await self._do_post("rw/dipc?action=dipc-create", payload)
@@ -391,7 +642,14 @@ class RWS_AIO:
                 return False
             raise
     
-    async def request_rmmp(self, timeout=5):
+    async def request_rmmp(self, timeout: float=5):
+        """
+        Request Remote Mastering. Required to alter pers variables in manual control mode. The teach pendant
+        will prompt to enable remote mastering, and the user must confirm. Once remote mastering is enabled,
+        poll_rmmp() must be executed periodically to maintain rmmp.
+
+        :param timeout: The request timeout in seconds
+        """
         t1=time.time()
         await self._do_post('users/rmmp?json=1', {'privilege': 'modify'})
         while time.time() - t1 < timeout:
@@ -409,6 +667,9 @@ class RWS_AIO:
         raise Exception("User did not grant remote access")
     
     async def poll_rmmp(self):
+        """
+        Poll rmmp to maintain remote mastering. Call periodically after rmmp enabled using request_rmmp()
+        """
         
         # A "persistent session" can only make 400 calls before
         # being disconnected. Once this connection is lost,
@@ -461,7 +722,19 @@ class RWS_AIO:
                 pass
 
     async def subscribe(self, resources: List[SubscriptionResourceRequest]):
-        
+        """
+        Create subscription that will receive real-time updates from the controller. handler will be called
+        with the new values. RWS subscriptions are relatively slow, with delays in the hundreds of milliseconds. 
+        Use EGM for faster real-time updates.
+
+        See :meth:`abb_robot_client.RWS.subscribe()` for more information on `resources` parameter.
+
+        The asyncio version of subscribe() returns an async generator. Use `async for` to receive events.
+
+        :param resources: Controller resources to subscribe
+        :param handler: Callable to call on resource events
+        :return: Generator to use with `async for`.
+        """
         self._init_subscription_convert_message()
 
         payload = {}
@@ -587,4 +860,6 @@ class RWS_AIO:
         return UnknownSubscriptionMessage(message)
 
 class UnknownSubscriptionMessage(NamedTuple):
+    """Contents of an unknown subscription resource type"""
     xml: str
+    """Raw xml returned by controller"""

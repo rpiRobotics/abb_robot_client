@@ -381,7 +381,7 @@ class RWS:
         payload={'lvalue': lvalue}
         res=self._do_post("rw/iosystem/signals/" + network + "/" + unit + "/" + signal + "?action=set", payload)
 
-    def get_analog_io(self, signal: str, network: str='Local', unit: str='DRV_1') -> int:
+    def get_analog_io(self, signal: str, network: str='Local', unit: str='DRV_1') -> float:
         """
         Get the value of an analog IO signal.
 
@@ -392,7 +392,7 @@ class RWS:
         """
         res_json = self._do_get("rw/iosystem/signals/" + network + "/" + unit + "/" + signal)
         state = res_json["_embedded"]["_state"][0]["lvalue"]
-        return int(state)
+        return float(state)
     
     def set_analog_io(self, signal: str, value: Union[int,float], network: str='Local', unit: str='DRV_1'):
         """
@@ -431,7 +431,7 @@ class RWS:
 
     def get_rapid_variable(self, var: str, task: str = "T_ROB1") -> str:
         """
-        Get a RAPID pers variable
+        Get value of a RAPID pers variable
 
         :param var: The pers variable name
         :param task: The task containing the pers variable
@@ -447,7 +447,7 @@ class RWS:
     
     def set_rapid_variable(self, var: str, value: str, task: str = "T_ROB1"):
         """
-        Set a RAPID pers variable
+        Set value of a RAPID pers variable
 
         :param var: The pers variable name
         :param value: The new variable value encoded as a string
@@ -698,13 +698,13 @@ class RWS:
         """
         self.set_rapid_variable(var, str(val), task)
         
-    def get_rapid_variable_num_array(self, var, task: str = "T_ROB1"):
+    def get_rapid_variable_num_array(self, var, task: str = "T_ROB1") -> np.ndarray:
         """
-        Set a RAPID pers variable from a float
+        Get a RAPID pers variable float array
 
         :param var: The pers variable name
-        :param value: The new variable float value
         :param task: The task containing the pers variable
+        :return: The variable value as an array
         """
         val1=self.get_rapid_variable(var,task)
         m=re.match("^\\[([^\\]]*)\\]$", val1)
