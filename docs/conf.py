@@ -22,8 +22,11 @@ import abb_robot_client
 
 extensions = [
      "sphinx.ext.autodoc",
-     "sphinx_autodoc_typehints"
+     "sphinx_autodoc_typehints",
+     "recommonmark"
 ]
+
+source_suffix = [".rst", ".md"]
 
 templates_path = ['_templates']
 exclude_patterns = []
@@ -35,3 +38,31 @@ exclude_patterns = []
 
 html_theme = "sphinx_rtd_theme"
 html_static_path = ['_static']
+
+# https://www.lieret.net/2021/05/20/include-readme-sphinx/
+import pathlib
+
+# The readme that already exists
+readme_path = pathlib.Path(__file__).parent.resolve().parent / "README.md"
+# We copy a modified version here
+readme_target = pathlib.Path(__file__).parent / "readme.md"
+
+with readme_target.open("w") as outf:
+    # Change the title to "Readme"
+    outf.write(
+        "\n".join(
+            [
+                "Readme",
+                "======",
+            ]
+        )
+    )
+    lines = []
+    for line in readme_path.read_text().split("\n"):
+        if line.startswith("# "):
+            # Skip title, because we now use "Readme"
+            # Could also simply exclude first line for the same effect
+            continue
+        line = line.replace("docs/figures/", "figures/")
+        lines.append(line)
+    outf.write("\n".join(lines))

@@ -10,6 +10,7 @@ Welcome to abb_robot_client's documentation!
    :maxdepth: 2
    :caption: Contents:
 
+   readme
    abb_robot_client/api_reference
 
 Indices and tables
