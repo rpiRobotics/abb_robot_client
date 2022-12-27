@@ -1,3 +1,17 @@
+# Copyright 2022 Wason Technology LLC, Rensselaer Polytechnic Institute
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#    http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
 import socket
 import select
 from ._egm_protobuf import egm_pb2
@@ -11,7 +25,7 @@ class EGMRobotState(NamedTuple):
     State information returned from robot through EGM
     """
     joint_angles: np.array
-    """Joint angles of robot in radians. Length is 6 or 7 depending on robot"""
+    """Joint angles of robot in degrees. Length is 6 or 7 depending on robot"""
     rapid_running: bool
     """True if RAPID program is running on controller"""
     motors_on: bool 
@@ -98,7 +112,7 @@ class EGM(object):
         Send a joint command to robot. Returns False if no data has been received from the robot yet. The EGM
         operation must have been started with EGMActJoint and EGMRunJoint.
 
-        :param joint_angles: Joint angle command in radians
+        :param joint_angles: Joint angle command in degrees
         :return: True if successful, False if no data received from robot yet
         """
 
