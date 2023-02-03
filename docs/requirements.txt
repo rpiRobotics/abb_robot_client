@@ -7,3 +7,4 @@ protobuf
 websocket-client
 httpx
 websockets
+-e .
