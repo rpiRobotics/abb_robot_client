@@ -469,7 +469,7 @@ class RWS:
         """
         payload={'value': value}
         if task is not None:
-            var1 = f"{task}/var"
+            var1 = f"{task}/{var}"
         else:
             var1 = var
         res=self._do_post("rw/rapid/symbol/data/RAPID/" + var1 + "?action=set", payload)
