@@ -20,7 +20,8 @@ setuptools.setup(
         'websocket-client'
     ],
     extras_require={
-        "aio": ["httpx", "websockets"]
+        "aio": ["httpx", "websockets"],
+        "testing": ["pytest", "pytest-asyncio"],
     },
     long_description=long_description,
     long_description_content_type='text/markdown'
