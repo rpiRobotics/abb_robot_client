@@ -994,6 +994,17 @@ class RWS:
     def logout(self):
         res=self._do_get("logout")
 
+    def close(self):
+        try:
+            self.logout()
+        except:
+            pass
+
+        try:
+            self._session.close()
+        except:
+            pass
+
 class SubscriptionException(Exception):
     def __init__(self, message):
         super().__init__(message)
