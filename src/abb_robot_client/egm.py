@@ -316,3 +316,13 @@ class EGM(object):
             return False
 
         return True
+
+    def close(self):
+        """
+        Close the connection to the robot.
+        """
+        try:
+            self.socket.close()
+            self.socket = None
+        except:
+            pass
