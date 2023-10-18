@@ -7,4 +7,5 @@ protobuf
 websocket-client
 httpx
 websockets
+sphinx-rtd-theme
 -e .
