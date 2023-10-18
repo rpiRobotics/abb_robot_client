@@ -469,7 +469,7 @@ class RWS:
         """
         payload={'value': value}
         if task is not None:
-            var1 = f"{task}/var"
+            var1 = f"{task}/{var}"
         else:
             var1 = var
         res=self._do_post("rw/rapid/symbol/data/RAPID/" + var1 + "?action=set", payload)
@@ -760,6 +760,27 @@ class RWS:
             #o.append(RAPIDEventLogEntry(msg_type,code,tstamp,args,title,desc,conseqs,causes,actions))
         return o
     
+    def get_speedratio(self) -> float:
+        """
+        Get the current speed ratio
+
+        :return: The current speed ratio between 0% - 100%
+        """
+        res_json=self._do_get(f"rw/panel/speedratio")
+        state = res_json["_embedded"]["_state"][0]
+        assert state["_type"] == "pnl-speedratio"
+        return float(state["speedratio"])
+    
+    def set_speedratio(self, speedratio: float):
+        """
+        Set the current speed ratio
+
+        :param speedratio: The new speed ratio between 0% - 100%
+        """
+        payload = {"speed-ratio": str(speedratio)}
+        self._do_post(f"rw/panel/speedratio?action=setspeedratio", payload)
+        
+    
     def send_ipc_message(self, target_queue: str, data: str, queue_name: str, cmd: int=111, userdef: int=1, msgtype: int=1 ):
         """
         Send an IPC message to the specified queue
@@ -972,6 +993,17 @@ class RWS:
 
     def logout(self):
         res=self._do_get("logout")
+
+    def close(self):
+        try:
+            self.logout()
+        except:
+            pass
+
+        try:
+            self._session.close()
+        except:
+            pass
 
 class SubscriptionException(Exception):
     def __init__(self, message):
