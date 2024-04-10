@@ -120,7 +120,8 @@ class RWS_AIO:
         """
         rob_tasks = await self.get_tasks()
         for t in tasks:
-            assert t in rob_tasks, f"Cannot start unknown task {t}"
+            if t not in rob_tasks
+                raise Exception(f"Cannot start unknown task {t}")
 
         for rob_task in rob_tasks.values():
             if not rob_task.motiontask:
@@ -333,7 +334,8 @@ class RWS_AIO:
         """
         url="/".join([self.base_url, "fileservice", filename])
         res=await self._session.get(url)
-        assert res.is_success, f"File not found {filename}"
+        if not res.is_success:
+            raise Exception(f"File not found {filename}")
         try:            
             return res.content
         finally:
@@ -348,7 +350,8 @@ class RWS_AIO:
         """
         url="/".join([self.base_url, "fileservice" , filename])
         res=await self._session.put(url, content=contents)
-        assert res.is_success, res.reason_phrase
+        if not res.is_success:
+            raise Exception(res.reason_phrase)
         await res.aclose()
 
     async def delete_file(self, filename: str) -> None:
@@ -439,7 +442,8 @@ class RWS_AIO:
         """
         res_json=await self._do_get("rw/motionsystem/mechunits/" + mechunit + "/jointtarget")
         state = res_json["_embedded"]["_state"][0]
-        assert state["_type"] == "ms-jointtarget"
+        if not state["_type"] == "ms-jointtarget":
+            raise Exception("Invalid response from controller")
         robjoint=np.array([state["rax_1"], state["rax_2"], state["rax_3"], state["rax_4"], state["rax_5"], 
             state["rax_6"]], dtype=np.float64)
         extjoint=np.array([state["eax_a"], state["eax_b"], state["eax_c"], state["eax_d"], state["eax_e"], 
@@ -460,7 +464,8 @@ class RWS_AIO:
         """
         res_json=await self._do_get(f"rw/motionsystem/mechunits/{mechunit}/robtarget?tool={tool}&wobj={wobj}&coordinate={coordinate}")
         state = res_json["_embedded"]["_state"][0]
-        assert state["_type"] == "ms-robtargets"
+        if not state["_type"] == "ms-robtargets":
+            raise Exception("Invalid response from controller")
         trans=np.array([state["x"], state["y"], state["z"]], dtype=np.float64)
         rot=np.array([state["q1"], state["q2"], state["q3"], state["q4"]], dtype=np.float64)
         robconf=np.array([state["cf1"],state["cf4"],state["cf6"],state["cfx"]], dtype=np.float64)
@@ -475,8 +480,10 @@ class RWS_AIO:
         return JointTarget(robax,extax)
     
     def _jointtarget_to_rws_value(self, val):
-        assert np.shape(val[0]) == (6,)
-        assert np.shape(val[1]) == (6,)
+        if not np.shape(val[0]) == (6,):
+            raise Exception("Invalid jointtarget")
+        if not np.shape(val[1]) == (6,):
+            raise Exception("Invalid jointtarget")
         robax=','.join([format(x, '.4f') for x in np.rad2deg(val[0])])
         extax=','.join([format(x, '.4f') for x in np.rad2deg(val[1])])
         rws_value="[[" + robax + "],[" + extax + "]]"
@@ -603,7 +610,8 @@ class RWS_AIO:
         
         res_json=await self._do_get("rw/dipc/" + queue_name + "/?action=dipc-read" + timeout_str)
         for state in res_json["_embedded"]["_state"]:
-            assert state["_type"] == "dipc-read-li"
+            if not state["_type"] == "dipc-read-li":
+                raise Exception("Invalid response from controller")
      
             o.append(IpcMessage(state["dipc-data"], state["dipc-userdef"],
                 state["dipc-msgtype"], state["dipc-cmd"], state["queue-name"]))
@@ -670,7 +678,8 @@ class RWS_AIO:
             
             res_json=self._do_get('users/rmmp/poll?json=1')
             state = res_json["_embedded"]["_state"][0]
-            assert state["_type"] == "user-rmmp-poll"
+            if not state["_type"] == "user-rmmp-poll":
+                raise Exception("Invalid response from controller")
             status = state["status"]
             if status=="GRANTED":
                 await self.poll_rmmp()
@@ -714,7 +723,8 @@ class RWS_AIO:
         res=await rmmp_session.get(url)
         res_json=self._process_response(res)
         state = res_json["_embedded"]["_state"][0]
-        assert state["_type"] == "user-rmmp-poll"
+        if not state["_type"] == "user-rmmp-poll":
+            raise Exception("Invalid response from controller")
                 
         if old_rmmp_session is not None:
             self._rmmp_session=rmmp_session
@@ -787,7 +797,7 @@ class RWS_AIO:
                     unit = r.param.get("unit", "DRV_1")
                 payload[f"{payload_ind}"] = f'/rw/iosystem/signals/{network}/{unit}/{signal};state'
             else:
-                assert False, "Invalid resource type"
+                raise Exception("Invalid resource type")
             payload[f"{payload_ind}-p"] = f"{r.priority.value}"
 
         payload["resources"] = [f"{i+1}" for i in range(payload_ind)]
@@ -800,10 +810,12 @@ class RWS_AIO:
         finally:
             await res1.aclose()
 
-        assert res1.status_code == 201, "Subscription creation failed"
+        if not res1.status_code == 201:
+            raise Exception("Subscription creation failed")
 
         m = re.search(r'<a href="ws:\/\/.*(\/poll\/\d+)" rel="self">', res1.content.decode("ascii"))
-        assert m
+        if not m:
+            raise Exception("Invalid response from controller")
         ws_url = self.base_url.replace("http:","ws:") + m.group(1)
         
         cookie = f"-http-session-={self._session.cookies['-http-session-']}; ABBCX={self._session.cookies['ABBCX']}"
@@ -811,7 +823,8 @@ class RWS_AIO:
         header={'Cookie': cookie}
 
         async with self._websocket_lock:
-            assert self._websocket is None, "Subscription already created"
+            if not self._websocket is None: 
+                raise Exception("Subscription already created")
 
             self._websocket = await websockets.connect(
                 ws_url, 
