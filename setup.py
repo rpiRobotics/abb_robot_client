@@ -22,7 +22,19 @@ setuptools.setup(
     extras_require={
         "aio": ["httpx", "websockets"],
         "testing": ["pytest", "pytest-asyncio"],
+        "robotraconteur": [
+            "robotraconteur", 
+            "robotraconteurcompanion", 
+            "drekar-launch-process",
+            "robotraconteur-abstract-robot"
+        ],
     },
     long_description=long_description,
-    long_description_content_type='text/markdown'
+    long_description_content_type='text/markdown',
+    package_data={"abb_robot_client.robotraconteur": ["*.robdef"]},
+    entry_points={
+        'console_scripts': [
+            'abb-robot-client-robotraconteur=abb_robot_client.robotraconteur.abb_robotraconteur_rws_driver:main',
+        ],
+    },
 )

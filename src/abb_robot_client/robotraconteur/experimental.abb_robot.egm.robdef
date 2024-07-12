@@ -1,0 +1,62 @@
+service experimental.abb_robot.egm
+
+import com.robotraconteur.datetime
+import com.robotraconteur.geometry
+
+using com.robotraconteur.datetime.TimeSpec2
+using com.robotraconteur.geometry.Pose
+using com.robotraconteur.geometry.Point
+using com.robotraconteur.geometry.SpatialVelocity
+
+struct EGMRobot
+    field uint32 seqno
+    field uint32 tm
+    field TimeSpec2 feedback_time
+    field double[] joint_position
+    field Pose cartesian_position
+    field double[] external_joint_position
+    field double[] joint_position_command
+    field Pose cartesian_position_command
+    field double[] external_joint_position_command
+    field bool motor_state
+    field bool mci_convergence_met
+    field bool rapid_ctrl_exec_state
+    field double[] measured_force
+    field double utilization_rate
+    field uint32 move_index
+    field EGMCollisionInfo collision_info
+    field double[] rapid_from_robot
+end
+
+struct EGMCollisionInfo
+    field bool collision_triggered
+    field double[] coll_det_quota
+end
+
+# TODO: duplicated in experimental.abb_robot.motion_program
+struct EGMJointTarget
+    field uint64 seqno
+    field uint64 state_seqno
+    field double[] joints
+    field double[] external_joints
+    field double[] joints_speed
+    field double[] external_joints_speed
+    field double[] rapid_to_robot
+end
+
+struct EGMPoseTarget
+    field uint64 seqno
+    field uint64 state_seqno
+    field Pose cartesian
+    field double[] external_joints
+    field SpatialVelocity[1-] cartesian_speed
+    field double[] external_joints_speed
+    field double[] rapid_to_robot
+end
+
+struct EGMPathCorrection
+    field uint64 seqno
+    field uint64 state_seqno
+    field Point pos
+    field uint32 age
+end

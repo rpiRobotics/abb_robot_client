@@ -1,0 +1,179 @@
+service experimental.abb_robot.rws
+
+import com.robotraconteur.device
+import com.robotraconteur.robotics.robot
+import com.robotraconteur.datetime
+import com.robotraconteur.geometry
+import com.robotraconteur.device.isoch
+import com.robotraconteur.device.clock
+import experimental.abb_robot.egm
+
+using com.robotraconteur.device.Device
+using com.robotraconteur.device.DeviceInfo
+using com.robotraconteur.robotics.robot.RobotInfo
+using com.robotraconteur.robotics.robot.RobotOperationalMode
+using com.robotraconteur.robotics.robot.RobotControllerState
+using com.robotraconteur.robotics.robot.RobotState
+using com.robotraconteur.robotics.robot.AdvancedRobotState
+using com.robotraconteur.robotics.robot.RobotStateSensorData
+using com.robotraconteur.datetime.DateTimeLocal
+using com.robotraconteur.geometry.Pose
+using com.robotraconteur.geometry.Point
+using com.robotraconteur.device.isoch.IsochDevice
+using com.robotraconteur.device.isoch.IsochInfo
+using com.robotraconteur.device.clock.DeviceClock
+using com.robotraconteur.device.clock.DeviceTime
+using experimental.abb_robot.egm.EGMJointTarget
+using experimental.abb_robot.egm.EGMPoseTarget
+using experimental.abb_robot.egm.EGMPathCorrection
+using experimental.abb_robot.egm.EGMRobot
+
+
+enum TaskCycle
+    unknown = 0,
+    asis = 1,
+    forever,
+    once,
+    oncedone
+end
+
+enum TaskExecutionState
+    unknown = 0,
+    running = 1,
+    stopped = 2
+end
+
+namedarray ConfData
+    field double cf1
+    field double cf4
+    field double cf6
+    field double cfx
+end
+
+struct RAPIDExecutionState
+    field TaskExecutionState ctrlexecstate
+    field TaskCycle cycle
+end
+
+struct EventLogEntry
+    field int32 seqnum
+    field int32 msgtype
+    field DateTimeLocal tstamp
+    field string{list} args
+    field string title
+    field string desc
+    field string conseqs
+    field string causes
+    field string actions
+end
+
+struct TaskState
+    field string name
+    field string type
+    field string taskstate
+    field TaskExecutionState excstate
+    field bool active
+    field bool motiontask
+end
+
+struct IpcMessage
+    field string data
+    field string userdef
+    field string msgtype
+    field string cmd
+    field string queue_name
+end
+
+struct JointTarget
+    field double[6] robax
+    field double[6] extax
+end
+
+struct RobTarget
+    field Pose pose
+    field ConfData robconf
+    field double[6] extax
+end
+
+object ABBRWSRobot
+    implements Device
+    implements DeviceClock
+    implements IsochDevice
+
+    property DeviceInfo device_info [readonly,nolock]
+    property RobotInfo robot_info [readonly,nolock]
+    property RobotOperationalMode operational_mode [readonly, nolock]
+    property RobotControllerState controller_state [readonly, nolock]
+
+    wire RobotState robot_state [readonly,nolock]
+    wire AdvancedRobotState advanced_robot_state [readonly,nolock]
+    pipe RobotStateSensorData robot_state_sensor_data [readonly,nolock]
+    property IsochInfo isoch_info [readonly,nolock]
+    property uint32 isoch_downsample [perclient]
+    wire DeviceTime device_clock_now [readonly,nolock]
+
+
+    function void start(TaskCycle cycle, string{list} tasks)
+    function void stop()
+    function void resetpp()
+    function void activate_task(string task)
+    function void deactivate_task(string task)
+    function TaskState{list} getf_tasks()
+
+    function RAPIDExecutionState getf_execution_state()
+    function RobotControllerState getf_controller_state()
+    function RobotOperationalMode getf_operation_mode()
+
+    function int32 getf_digital_io(string signal_name)
+    function void setf_digital_io(string signal_name, int32 value)
+    function int32 getf_digital_io2(string signal_name, string network, string unit)
+    function void setf_digital_io2(string signal_name, string network, string unit, int32 value)
+
+    function double getf_analog_io(string signal_name)
+    function void setf_analog_io(string signal_name, double value)
+    function double getf_analog_io2(string signal_name, string network, string unit)
+    function void setf_analog_io2(string signal_name, string network, string unit, double value)
+
+    function string{list} getf_rapid_variables(string task)
+    function string getf_rapid_variable(string var, string task)
+    function void setf_rapid_variable(string var, string task, string value)
+
+    function string getf_ramdisk_path()
+    function uint8[] read_file(string filename)
+    function void upload_file(string filename, uint8[] data)
+    function void delete_file(string filename)
+    function string{list} list_files(string path)
+
+    function EventLogEntry{list} read_event_log()
+
+    function JointTarget getf_jointtarget(string mechunit)
+
+    function RobTarget getf_robtarget(string mechunit)
+
+    function RobTarget getf_robtarget2(string mechunit, string tool, string wobj, string coordinate)
+
+    function JointTarget getf_rapid_variable_jointtarget(string var, string task)
+    function void setf_rapid_variable_jointtarget(string var, string task, JointTarget value)
+    function JointTarget{list} getf_rapid_variable_jointtarget_array(string var, string task)
+    function void setf_rapid_jointtarget_array(string var, string task, JointTarget{list} value)
+
+    function double getf_rapid_variable_num(string var, string task)
+    function void setf_rapid_variable_num(string var, string task, double value)
+    function double[] getf_rapid_variable_num_array(string var, string task)
+    function void setf_rapid_variable_num_array(string var, string task, double[] value)
+
+    property double speed_ratio
+
+    wire EGMRobot egm_state [readonly]
+    wire EGMJointTarget egm_joint_command [writeonly]
+    wire EGMPoseTarget egm_pose_command [writeonly]
+    wire EGMPathCorrection egm_path_correction_command [writeonly]
+
+    function varvalue getf_param(string param_name)
+    function void setf_param(string param_name, varvalue value)
+    event param_changed(string param_name)
+
+    function void request_rmmp(double timeout)
+    function void poll_rmmp()
+end
+
