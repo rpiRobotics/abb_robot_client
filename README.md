@@ -15,6 +15,8 @@ Web Services (RWS) using HTTP REST, and the ability to create subscriptions usin
 identical functionality to `rws`, but uses asyncio, with each method being `async`. `egm` provides an Externally
 Guided Motion (EGM) client.
 
+A Robot Raconteur driver is also provided. This driver provides access to RWS and EGM.
+
 Documentation can be found at: https://abb_robot_client.readthedocs.org
 
 ## Installation
@@ -28,6 +30,50 @@ pip install abb-robot-client[aio]
 ## Examples
 
 See the `examples/` directory for examples using the modules.
+
+## Robot Raconteur Driver
+
+The Robot Raconteur driver provides access to the features of RWS and EGM, along with standard Robot Raconteur
+data structures such as `RobotInfo` and `RobotState`. See `examples/robotraconteur` for examples using
+the Robot Raconteur driver. See `src/abb_robot_client/robotraconteur/experimental.abb_robot.rws.robdef` and
+`src/abb_robot_client/robotraconteur/experimental.abb_robot.egm.robdef` service definitions
+for full information on the objects and data types provided by the service.
+
+### Installation
+
+Install the `abb-robot-client` with the `[robotraconteur]` feature:
+
+```bash
+python -m pip install abb-robot-client[robotraconteur]
+```
+
+### Start the Driver
+
+Start the driver:
+
+```
+abb-robot-client-robotraconteur --robot-info-file=config\abb_1200_5_90_rws_default_config.yml --robot-url=http://127.0.0.1:80
+```
+
+or
+
+```
+python -m pip abb_robot_client.robotraconteur --robot-info-file=config\abb_1200_5_90_rws_default_config.yml --robot-url=http://127.0.0.1:80
+```
+
+Change the `--robot-info-file=` to the appropriate Robot Raconteur format yaml file for your robot,
+and change `--robot-url=` to the URL of the IRC5 robot controller.
+
+If EGM is used, the EGM must be configured on the robot controller to point to the IP address of the
+computer running the driver, on port 6510.
+
+### Connection Info
+
+- URL: `rr+tcp://localhost:59926?service=robot`
+- Node Name: `experimental.abb_rws_robot.robot`
+- Device Name: `abb_robot_rws`
+- Service Name: `robot`
+- Root Object Type: `experimental.abb_robot.rws.ABBRWSRobot`
 
 ## License
 
