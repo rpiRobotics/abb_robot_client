@@ -120,7 +120,7 @@ class RWS_AIO:
         """
         rob_tasks = await self.get_tasks()
         for t in tasks:
-            if t not in rob_tasks
+            if t not in rob_tasks:
                 raise Exception(f"Cannot start unknown task {t}")
 
         for rob_task in rob_tasks.values():
